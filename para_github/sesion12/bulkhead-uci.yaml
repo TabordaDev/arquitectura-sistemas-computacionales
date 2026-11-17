@@ -1,0 +1,68 @@
+# bulkhead-uci.yaml - Ejercicio 2, paso 2.4 (Sesión 12)
+# Bulkhead a nivel de Kubernetes en el nodo Edge de la UCI (8 vCPU).
+# Kubernetes traduce requests/limits a cgroups v2:
+#   limits.cpu "2"     -> cpu.max "200000 100000"  (2 vCPU)
+#   limits.cpu "1500m" -> cpu.max "150000 100000"  (1,5 vCPU)
+#   limits.cpu "1"     -> cpu.max "100000 100000"  (1 vCPU)
+# y los requests a cpu.weight (más request = más peso cuando hay competencia por CPU).
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: uci-critica
+value: 1000000
+description: "Alertas críticas de la UCI: lo último que se desaloja del nodo"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertas-uci
+  namespace: hospitvalle-uci
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: alertas-uci } }
+  template:
+    metadata: { labels: { app: alertas-uci } }
+    spec:
+      priorityClassName: uci-critica
+      containers:
+        - name: alertas-uci
+          image: hospitvalle/alertas-uci:1.0
+          resources:                              # requests = limits -> QoS "Guaranteed"
+            requests: { cpu: "2", memory: "1Gi" }
+            limits:   { cpu: "2", memory: "1Gi" }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telemetria-regular
+  namespace: hospitvalle-uci
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: telemetria-regular } }
+  template:
+    metadata: { labels: { app: telemetria-regular } }
+    spec:
+      containers:
+        - name: telemetria
+          image: hospitvalle/telemetria:1.0
+          resources:                              # QoS "Burstable": puede crecer hasta 1,5 vCPU
+            requests: { cpu: "500m", memory: "512Mi" }
+            limits:   { cpu: "1500m", memory: "1Gi" }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cliente-ia-nube
+  namespace: hospitvalle-uci
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: cliente-ia-nube } }
+  template:
+    metadata: { labels: { app: cliente-ia-nube } }
+    spec:
+      containers:
+        - name: cliente-ia
+          image: hospitvalle/cliente-ia:1.0
+          resources:                              # el compartimento más pequeño
+            requests: { cpu: "250m", memory: "256Mi" }
+            limits:   { cpu: "1", memory: "512Mi" }
